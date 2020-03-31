@@ -162,16 +162,16 @@ func (m *Master) GetTask(args *ReqArgs, reply *ReplyArgs) error {
 func (m *Master) MapDone(args *ReqArgs, reply *ReplyArgs) error {
 	if args.ACK == m.mapACK.get(args.MapIndex) {
 		m.mapDone.put(args.MapIndex, 1)
+		fmt.Printf("#%v MAP task done!\n", args.MapIndex)
 	} // otherwise discard
-	fmt.Printf("#%v MAP task done!\n", args.MapIndex)
 	return nil
 }
 
 func (m *Master) ReduceDone(args *ReqArgs, reply *ReplyArgs) error {
 	if args.ACK == m.reduceACK.get(args.ReduceTaskNum) {
 		m.reduceDone.put(args.ReduceTaskNum, 1)
+		fmt.Printf("#%v Reduce task done!\n", args.ReduceTaskNum)
 	} // otherwise discard
-	fmt.Printf("#%v Reduce task done!\n", args.ReduceTaskNum)
 	return nil
 }
 
@@ -181,6 +181,7 @@ func (m *Master) checkMapTaskDone(mapIndex int) {
 		return
 	} else { // if not done, discard task
 		m.mapTask.put(mapIndex, 1)
+		fmt.Printf("Discarding #%v MAP task", mapIndex)
 	}
 }
 
@@ -190,6 +191,7 @@ func (m *Master) checkReduceTaskDone(reduceTaskNumber int) {
 		return
 	} else { // if not done, discard task
 		m.reduceTask.put(reduceTaskNumber, 1)
+		fmt.Printf("Discarding #%v REDUCE task", reduceTaskNumber)
 	}
 }
 
@@ -218,6 +220,10 @@ func (m *Master) Done() bool {
 
 	// Your code here.
 	ret = m.reduceDone.length() == m.reduceTaskNum
+	if ret {
+		time.Sleep(AbortTime * time.Second)
+		fmt.Println("All Map Reduce task done, exit...")
+	}
 
 	return ret
 }

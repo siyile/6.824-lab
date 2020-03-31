@@ -131,6 +131,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				}
 				intermediate = append(intermediate, kva...)
 				_ = file.Close()
+				_ = os.Remove(filename)
 			}
 
 			sort.Sort(ByKey(intermediate))
