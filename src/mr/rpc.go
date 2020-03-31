@@ -11,6 +11,7 @@ import "strconv"
 
 const MapTask = 1
 const ReduceTask = 2
+const KillSignal = -1
 
 //
 // example to show how to declare the arguments
@@ -41,7 +42,7 @@ type reqArgs struct {
 }
 
 type replyArgs struct {
-	assigned int // 1 for map task, 2 for reduce task, 0 for not assigned
+	assigned int // 1 for map task, 2 for reduce task, 0 for not assigned, -1 for kill command
 
 	mapIndex int
 	mapFileName string

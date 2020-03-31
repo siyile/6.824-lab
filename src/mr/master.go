@@ -148,6 +148,9 @@ func (m *Master) GetTask(args *reqArgs, reply *replyArgs) error {
 
 			go m.checkMapTaskDone(task)
 			return nil
+		} else if m.reduceDone.length() == m.reduceTaskNum { // work done kill worker
+			reply.assigned = -1
+			return nil
 		}
 	}
 
