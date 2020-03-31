@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -112,44 +113,44 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
-func (m *Master) GetTask(args *reqArgs, reply *replyArgs) error {
-	if args.idle {
+func (m *Master) GetTask(args *ReqArgs, reply *ReplyArgs) error {
+	if args.Idle {
 		if m.mapDone.length() < len(m.files) { // assign map task
 			task := m.mapTask.getRandomKey()
 			if task == -1 { // currently no task
-				reply.assigned = 0
+				reply.Assigned = 0
 				return nil
 			}
 			m.mapTask.delete(task)
 			ack := rand.Int()
 			m.mapACK.put(task, ack)
 
-			reply.assigned = 1
-			reply.mapIndex = task
-			reply.mapFileName = m.files[task]
-			reply.reduceTaskNumber = m.reduceTaskNum
-			reply.ack = ack
+			reply.Assigned = MapTask
+			reply.MapIndex = task
+			reply.MapFileName = m.files[task]
+			reply.ReduceTaskNumber = m.reduceTaskNum
+			reply.ACK = ack
 
 			go m.checkMapTaskDone(task)
 			return nil
 		} else if m.mapDone.length() == len(m.files) && m.reduceDone.length() < m.reduceTaskNum { // assign reduce task
 			task := m.reduceTask.getRandomKey()
 			if task == -1 { // currently no task
-				reply.assigned = 0
+				reply.Assigned = 0
 				return nil
 			}
 			m.reduceTask.delete(task)
 			ack := rand.Int()
 			m.reduceACK.put(task, ack)
 
-			reply.assigned = 2
-			reply.reduceTaskNumber = task
-			reply.ack = ack
+			reply.Assigned = ReduceTask
+			reply.ReduceTaskNumber = task
+			reply.ACK = ack
 
-			go m.checkMapTaskDone(task)
+			go m.checkReduceTaskDone(task)
 			return nil
 		} else if m.reduceDone.length() == m.reduceTaskNum { // work done kill worker
-			reply.assigned = -1
+			reply.Assigned = KillSignal
 			return nil
 		}
 	}
@@ -158,26 +159,37 @@ func (m *Master) GetTask(args *reqArgs, reply *replyArgs) error {
 	return nil
 }
 
-func (m *Master) MapDone(args *reqArgs, reply *replyArgs) error {
-	if args.ack == m.mapACK.get(args.mapIndex) {
-		m.mapDone.put(args.mapIndex, 1)
+func (m *Master) MapDone(args *ReqArgs, reply *ReplyArgs) error {
+	if args.ACK == m.mapACK.get(args.MapIndex) {
+		m.mapDone.put(args.MapIndex, 1)
 	} // otherwise discard
+	fmt.Printf("#%v MAP task done!\n", args.MapIndex)
 	return nil
 }
 
-func (m *Master) ReduceDone(args *reqArgs, reply *replyArgs) error {
-	if args.ack == m.reduceACK.get(args.mapIndex) {
-		m.reduceDone.put(args.reduceTaskNum, 1)
+func (m *Master) ReduceDone(args *ReqArgs, reply *ReplyArgs) error {
+	if args.ACK == m.reduceACK.get(args.ReduceTaskNum) {
+		m.reduceDone.put(args.ReduceTaskNum, 1)
 	} // otherwise discard
+	fmt.Printf("#%v Reduce task done!\n", args.ReduceTaskNum)
 	return nil
 }
 
 func (m *Master) checkMapTaskDone(mapIndex int) {
-	time.Sleep(AbortTime)
+	time.Sleep(AbortTime * time.Second)
 	if m.mapDone.contains(mapIndex) {
 		return
 	} else { // if not done, discard task
 		m.mapTask.put(mapIndex, 1)
+	}
+}
+
+func (m *Master) checkReduceTaskDone(reduceTaskNumber int) {
+	time.Sleep(AbortTime * time.Second)
+	if m.reduceDone.contains(reduceTaskNumber) {
+		return
+	} else { // if not done, discard task
+		m.reduceTask.put(reduceTaskNumber, 1)
 	}
 }
 

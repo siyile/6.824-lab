@@ -26,29 +26,29 @@ type ExampleReply struct {
 	Y int
 }
 
-type reqArgs struct {
+type ReqArgs struct {
 	// request task
-	idle bool
+	Idle bool
 
-	done bool
+	Done bool
 
 	// reply map task
-	mapIndex int
+	MapIndex int
 
 	// reply reduce task
-	reduceTaskNum int
+	ReduceTaskNum int
 
-	ack int
+	ACK int
 }
 
-type replyArgs struct {
-	assigned int // 1 for map task, 2 for reduce task, 0 for not assigned, -1 for kill command
+type ReplyArgs struct {
+	Assigned int // 1 for map task, 2 for reduce task, 0 for not assigned, -1 for kill command
 
-	mapIndex int
-	mapFileName string
-	reduceTaskNumber int
+	MapIndex         int
+	MapFileName      string
+	ReduceTaskNumber int
 
-	ack int
+	ACK int
 }
 
 // Add your RPC definitions here.

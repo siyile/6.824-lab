@@ -50,14 +50,15 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 	for {
 		reply := CallForWork()
-		if reply.assigned == 0 {
-			time.Sleep(SleepTime)
+		if reply.Assigned == 0 {
+			time.Sleep(SleepTime * time.Second)
 			continue
 		}
 
-		if reply.assigned == MapTask {
+		if reply.Assigned == MapTask {
+			fmt.Printf("Doing #%v MAP task!\n", reply.MapIndex)
 			// open file
-			filename := reply.mapFileName
+			filename := reply.MapFileName
 			file, err := os.Open(filename)
 			if err != nil {
 				log.Fatalf("cannot open %v", filename)
@@ -69,7 +70,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			_ = file.Close()
 
 			// MAP!!
-			kva := mapf(reply.mapFileName, string(content))
+			kva := mapf(reply.MapFileName, string(content))
 
 			/*
 				save intermediate results
@@ -77,7 +78,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			// create tmp file
 			var tmpfiles []*os.File
 			var encoders []*json.Encoder
-			for i := 0; i < reply.reduceTaskNumber; i++ {
+			for i := 0; i < reply.ReduceTaskNumber; i++ {
 				tmpfile, err := ioutil.TempFile("", "intermidiatefile")
 				if err != nil {
 					log.Fatal(err)
@@ -91,7 +92,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			// wrap into json
 			for _, kv := range kva {
-				i := ihash(kv.Key) % reply.reduceTaskNumber
+				i := ihash(kv.Key) % reply.ReduceTaskNumber
 				err := encoders[i].Encode(&kv)
 				if err != nil {
 					log.Fatal(err)
@@ -99,16 +100,17 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 
 			// rename to mr-mapNumber-reduceNumber & close
-			for i := 0; i < reply.reduceTaskNumber; i++ {
+			for i := 0; i < reply.ReduceTaskNumber; i++ {
 				_ = tmpfiles[i].Close()
-				_ = os.Rename(tmpfiles[i].Name(), fmt.Sprintf("mr-%v-%v", reply.mapIndex, i))
+				_ = os.Rename(tmpfiles[i].Name(), fmt.Sprintf("mr-%v-%v", reply.MapIndex, i))
 			}
 
 			// send message to master we are done
-			CallMapDone(reply.mapIndex)
-		} else if reply.assigned == ReduceTask {
+			CallMapDone(reply.MapIndex, reply.ACK)
+		} else if reply.Assigned == ReduceTask {
+			fmt.Printf("Doing #%v REDUCE task!\n", reply.ReduceTaskNumber)
 			// read files
-			files, err := filepath.Glob(fmt.Sprintf("mr-[0-9]?-%v", reply.reduceTaskNumber))
+			files, err := filepath.Glob(fmt.Sprintf("mr-[0-9]*-%v", reply.ReduceTaskNumber))
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -133,7 +135,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			sort.Sort(ByKey(intermediate))
 
-			outFileName := fmt.Sprintf("mr-out-%v", reply.reduceTaskNumber)
+			outFileName := fmt.Sprintf("mr-out-%v", reply.ReduceTaskNumber)
 			outfile, _ := os.Create(outFileName)
 
 			i := 0
@@ -156,10 +158,11 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			_ = outfile.Close()
 
-			CallReduceDone(reply.reduceTaskNumber)
-		} else if reply.assigned == KillSignal {
+			CallReduceDone(reply.ReduceTaskNumber, reply.ACK)
+		} else if reply.Assigned == KillSignal {
 			return
 		}
+		time.Sleep(SleepTime * time.Second)
 	}
 	// uncomment to send the Example RPC to the master.
 	// CallExample()
@@ -189,24 +192,24 @@ func CallExample() {
 	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
-func CallForWork() replyArgs {
-	args := reqArgs{idle:true}
-	reply := replyArgs{}
+func CallForWork() ReplyArgs {
+	args := ReqArgs{Idle: true}
+	reply := ReplyArgs{}
 
 	call("Master.GetTask", &args, &reply)
 
 	return reply
 }
 
-func CallMapDone(mapIndex int) {
-	args := reqArgs{idle:true, done:true, mapIndex:mapIndex}
-	reply := replyArgs{}
+func CallMapDone(mapIndex, ACK int) {
+	args := ReqArgs{Idle: true, Done:true, MapIndex:mapIndex, ACK:ACK}
+	reply := ReplyArgs{}
 	call("Master.MapDone", &args, &reply)
 }
 
-func CallReduceDone(reduceTaskNum int) {
-	args := reqArgs{idle:true, done:true, reduceTaskNum:reduceTaskNum}
-	reply := replyArgs{}
+func CallReduceDone(reduceTaskNum, ACK int) {
+	args := ReqArgs{Idle: true, Done:true, ReduceTaskNum:reduceTaskNum, ACK:ACK}
+	reply := ReplyArgs{}
 	call("Master.ReduceDone", &args, &reply)
 }
 
