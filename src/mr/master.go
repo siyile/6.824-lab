@@ -163,7 +163,10 @@ func (m *Master) MapDone(args *ReqArgs, reply *ReplyArgs) error {
 	if args.ACK == m.mapACK.get(args.MapIndex) {
 		m.mapDone.put(args.MapIndex, 1)
 		fmt.Printf("#%v MAP task done!\n", args.MapIndex)
-	} // otherwise discard
+		reply.ACK = args.ACK
+	} else { // otherwise discard
+		reply.ACK = rand.Int()
+	}
 	return nil
 }
 
@@ -171,7 +174,10 @@ func (m *Master) ReduceDone(args *ReqArgs, reply *ReplyArgs) error {
 	if args.ACK == m.reduceACK.get(args.ReduceTaskNum) {
 		m.reduceDone.put(args.ReduceTaskNum, 1)
 		fmt.Printf("#%v Reduce task done!\n", args.ReduceTaskNum)
-	} // otherwise discard
+		reply.ACK = args.ACK
+	} else { // otherwise discard
+		reply.ACK = rand.Int()
+	}
 	return nil
 }
 
@@ -181,7 +187,7 @@ func (m *Master) checkMapTaskDone(mapIndex int) {
 		return
 	} else { // if not done, discard task
 		m.mapTask.put(mapIndex, 1)
-		fmt.Printf("Discarding #%v MAP task", mapIndex)
+		fmt.Printf("Discarding #%v MAP task\n", mapIndex)
 	}
 }
 

@@ -99,14 +99,21 @@ func Worker(mapf func(string, string) []KeyValue,
 				}
 			}
 
-			// rename to mr-mapNumber-reduceNumber & close
-			for i := 0; i < reply.ReduceTaskNumber; i++ {
-				_ = tmpfiles[i].Close()
-				_ = os.Rename(tmpfiles[i].Name(), fmt.Sprintf("mr-%v-%v", reply.MapIndex, i))
+			// send message to master we are done
+			if 	CallMapDone(reply.MapIndex, reply.ACK) {
+				// rename to mr-mapNumber-reduceNumber & close
+				for i := 0; i < reply.ReduceTaskNumber; i++ {
+					_ = tmpfiles[i].Close()
+					_ = os.Rename(tmpfiles[i].Name(), fmt.Sprintf("mr-%v-%v", reply.MapIndex, i))
+				}
+			} else {
+				for i := 0; i < reply.ReduceTaskNumber; i++ {
+					_ = tmpfiles[i].Close()
+					_ = os.Remove(tmpfiles[i].Name())
+					fmt.Printf("[Worker] Aborting #%v MAP Task\n", reply.MapIndex)
+				}
 			}
 
-			// send message to master we are done
-			CallMapDone(reply.MapIndex, reply.ACK)
 		} else if reply.Assigned == ReduceTask {
 			fmt.Printf("Doing #%v REDUCE task!\n", reply.ReduceTaskNumber)
 			// read files
@@ -137,7 +144,11 @@ func Worker(mapf func(string, string) []KeyValue,
 			sort.Sort(ByKey(intermediate))
 
 			outFileName := fmt.Sprintf("mr-out-%v", reply.ReduceTaskNumber)
-			outfile, _ := os.Create(outFileName)
+
+			tmpfile, err := ioutil.TempFile("", "intermidiatefile")
+			if err != nil {
+				log.Fatal(err)
+			}
 
 			i := 0
 			for i < len(intermediate) {
@@ -152,14 +163,20 @@ func Worker(mapf func(string, string) []KeyValue,
 				output := reducef(intermediate[i].Key, values)
 
 				// this is the correct format for each line of Reduce output.
-				_, _ = fmt.Fprintf(outfile, "%v %v\n", intermediate[i].Key, output)
+				_, _ = fmt.Fprintf(tmpfile, "%v %v\n", intermediate[i].Key, output)
 
 				i = j
 			}
 
-			_ = outfile.Close()
+			if CallReduceDone(reply.ReduceTaskNumber, reply.ACK) {
+				_ = tmpfile.Close()
+				_ = os.Rename(tmpfile.Name(), outFileName)
+			} else {
+				_ = os.Remove(tmpfile.Name())
+				fmt.Printf("[Worker] Aborting #%v REDUCE Task\n", reply.ReduceTaskNumber)
+			}
 
-			CallReduceDone(reply.ReduceTaskNumber, reply.ACK)
+
 		} else if reply.Assigned == KillSignal {
 			return
 		}
@@ -202,16 +219,18 @@ func CallForWork() ReplyArgs {
 	return reply
 }
 
-func CallMapDone(mapIndex, ACK int) {
+func CallMapDone(mapIndex, ACK int) bool{
 	args := ReqArgs{Idle: true, Done:true, MapIndex:mapIndex, ACK:ACK}
 	reply := ReplyArgs{}
 	call("Master.MapDone", &args, &reply)
+	return ACK == reply.ACK
 }
 
-func CallReduceDone(reduceTaskNum, ACK int) {
+func CallReduceDone(reduceTaskNum, ACK int) bool{
 	args := ReqArgs{Idle: true, Done:true, ReduceTaskNum:reduceTaskNum, ACK:ACK}
 	reply := ReplyArgs{}
 	call("Master.ReduceDone", &args, &reply)
+	return ACK == reply.ACK
 }
 
 
