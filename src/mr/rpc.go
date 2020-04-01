@@ -9,6 +9,10 @@ package mr
 import "os"
 import "strconv"
 
+const MapTask = 1
+const ReduceTask = 2
+const KillSignal = -1
+
 //
 // example to show how to declare the arguments
 // and reply for an RPC.
@@ -20,6 +24,31 @@ type ExampleArgs struct {
 
 type ExampleReply struct {
 	Y int
+}
+
+type ReqArgs struct {
+	// request task
+	Idle bool
+
+	Done bool
+
+	// reply map task
+	MapIndex int
+
+	// reply reduce task
+	ReduceTaskNum int
+
+	ACK int
+}
+
+type ReplyArgs struct {
+	Assigned int // 1 for map task, 2 for reduce task, 0 for not assigned, -1 for kill command
+
+	MapIndex         int
+	MapFileName      string
+	ReduceTaskNumber int
+
+	ACK int
 }
 
 // Add your RPC definitions here.
