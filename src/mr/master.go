@@ -197,7 +197,7 @@ func (m *Master) checkReduceTaskDone(reduceTaskNumber int) {
 		return
 	} else { // if not done, discard task
 		m.reduceTask.put(reduceTaskNumber, 1)
-		fmt.Printf("Discarding #%v REDUCE task", reduceTaskNumber)
+		fmt.Printf("Discarding #%v REDUCE task\n", reduceTaskNumber)
 	}
 }
 

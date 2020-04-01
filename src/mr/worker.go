@@ -138,7 +138,6 @@ func Worker(mapf func(string, string) []KeyValue,
 				}
 				intermediate = append(intermediate, kva...)
 				_ = file.Close()
-				_ = os.Remove(filename)
 			}
 
 			sort.Sort(ByKey(intermediate))
@@ -171,6 +170,10 @@ func Worker(mapf func(string, string) []KeyValue,
 			if CallReduceDone(reply.ReduceTaskNumber, reply.ACK) {
 				_ = tmpfile.Close()
 				_ = os.Rename(tmpfile.Name(), outFileName)
+
+				for _, filename := range files {
+					_ = os.Remove(filename)
+				}
 			} else {
 				_ = os.Remove(tmpfile.Name())
 				fmt.Printf("[Worker] Aborting #%v REDUCE Task\n", reply.ReduceTaskNumber)
