@@ -100,7 +100,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 
 			// send message to master we are done
-			if 	CallMapDone(reply.MapIndex, reply.ACK) {
+			if CallMapDone(reply.MapIndex, reply.ACK) {
 				// rename to mr-mapNumber-reduceNumber & close
 				for i := 0; i < reply.ReduceTaskNumber; i++ {
 					_ = tmpfiles[i].Close()
@@ -179,7 +179,6 @@ func Worker(mapf func(string, string) []KeyValue,
 				fmt.Printf("[Worker] Aborting #%v REDUCE Task\n", reply.ReduceTaskNumber)
 			}
 
-
 		} else if reply.Assigned == KillSignal {
 			return
 		}
@@ -222,20 +221,19 @@ func CallForWork() ReplyArgs {
 	return reply
 }
 
-func CallMapDone(mapIndex, ACK int) bool{
-	args := ReqArgs{Idle: true, Done:true, MapIndex:mapIndex, ACK:ACK}
+func CallMapDone(mapIndex, ACK int) bool {
+	args := ReqArgs{Idle: true, Done: true, MapIndex: mapIndex, ACK: ACK}
 	reply := ReplyArgs{}
 	call("Master.MapDone", &args, &reply)
 	return ACK == reply.ACK
 }
 
-func CallReduceDone(reduceTaskNum, ACK int) bool{
-	args := ReqArgs{Idle: true, Done:true, ReduceTaskNum:reduceTaskNum, ACK:ACK}
+func CallReduceDone(reduceTaskNum, ACK int) bool {
+	args := ReqArgs{Idle: true, Done: true, ReduceTaskNum: reduceTaskNum, ACK: ACK}
 	reply := ReplyArgs{}
 	call("Master.ReduceDone", &args, &reply)
 	return ACK == reply.ACK
 }
-
 
 //
 // send an RPC request to the master, wait for the response.

@@ -3,9 +3,9 @@ package mr
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
-	"math/rand"
 )
 import "net"
 import "os"
@@ -14,27 +14,26 @@ import "net/http"
 
 const AbortTime = 10
 
-
 type Master struct {
 	// Your definitions here.
-	mapTask Task
+	mapTask    Task
 	reduceTask Task
-	mapDone Task
+	mapDone    Task
 	reduceDone Task
 
-	mapACK Task
+	mapACK    Task
 	reduceACK Task
 
-	files []string
+	files         []string
 	reduceTaskNum int
 }
 
 type Task struct {
-	mux sync.Mutex
+	mux     sync.Mutex
 	taskMap map[int]int
 }
 
-func (task Task) put(key int, value int) bool{
+func (task Task) put(key int, value int) bool {
 	task.mux.Lock()
 	var res bool
 	if _, ok := task.taskMap[key]; ok {
@@ -47,7 +46,7 @@ func (task Task) put(key int, value int) bool{
 	return res
 }
 
-func (task Task) contains(key int) bool{
+func (task Task) contains(key int) bool {
 	task.mux.Lock()
 	var res bool
 	if _, ok := task.taskMap[key]; ok {
@@ -59,7 +58,7 @@ func (task Task) contains(key int) bool{
 	return res
 }
 
-func (task Task) delete(key int) bool{
+func (task Task) delete(key int) bool {
 	task.mux.Lock()
 	var res bool
 	if _, ok := task.taskMap[key]; ok {
@@ -72,14 +71,14 @@ func (task Task) delete(key int) bool{
 	return res
 }
 
-func (task Task) length() int{
+func (task Task) length() int {
 	task.mux.Lock()
 	res := len(task.taskMap)
 	task.mux.Unlock()
 	return res
 }
 
-func (task Task) getRandomKey() int{
+func (task Task) getRandomKey() int {
 	task.mux.Lock()
 	for k := range task.taskMap {
 		return k
@@ -88,7 +87,7 @@ func (task Task) getRandomKey() int{
 	return -1
 }
 
-func (task Task) get(key int) int{
+func (task Task) get(key int) int {
 	task.mux.Lock()
 	var res int
 	if _, ok := task.taskMap[key]; ok {
@@ -101,7 +100,6 @@ func (task Task) get(key int) int{
 }
 
 // Your code here -- RPC handlers for the worker to call.
-
 
 //
 // an example RPC handler.
@@ -154,7 +152,6 @@ func (m *Master) GetTask(args *ReqArgs, reply *ReplyArgs) error {
 			return nil
 		}
 	}
-
 
 	return nil
 }
