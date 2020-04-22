@@ -177,12 +177,19 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if rf.currentTerm > args.Term {
 		reply.VoteGranted = false
 		DPrintf("%d vote NO to %d, my term %d is newer than you %d", rf.me, args.CandidateID, rf.currentTerm, args.Term)
-	} else if args.CandidateID == rf.voteFor || rf.voteFor == -1 {
+	} else if rf.voteFor == -1 || args.CandidateID == rf.voteFor || args.Term > rf.currentTerm {
 		// compare last log
 		if args.LastLogTerm != rf.log[len(rf.log)-1].Term {
 			reply.VoteGranted = rf.log[len(rf.log)-1].Term == args.LastLogTerm
 		} else {
 			reply.VoteGranted = len(rf.log) > args.LastLogIndex
+		}
+
+		if args.Term > rf.currentTerm {
+			rf.currentTerm = args.Term
+			rf.voteFor = -1
+			rf.status = follower
+			DPrintf("%d change my current term from %d to %d", rf.me, rf.currentTerm, args.Term)
 		}
 
 		if reply.VoteGranted {
@@ -368,7 +375,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 }
 
 const checkInterval = 50
-const heartBeatInterval = 100
+const heartBeatInterval = 150
 const randomTimeout = 500
 
 func (rf *Raft) daemon() {
@@ -446,6 +453,7 @@ func (rf *Raft) kickOffElection() {
 
 	// increase current term
 	rf.currentTerm += 1
+	rf.voteFor = -1
 
 	DPrintf("%d Kickoff Election at term %d", rf.me, rf.currentTerm)
 
