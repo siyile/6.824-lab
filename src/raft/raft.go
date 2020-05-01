@@ -88,13 +88,13 @@ type Raft struct {
 	matchIndex []int
 
 	// helper variable
-	voteCount   int
-	majority    int
+	voteCount int
+	majority  int
 }
 
 type entry struct {
-	Index int
-	Term  int
+	Index   int
+	Term    int
 	Command interface{}
 }
 
@@ -334,9 +334,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	var end int
 	if isHeartBeat {
-		end = rf.log[len(rf.log) - 1].Index
+		end = rf.log[len(rf.log)-1].Index
 	} else {
-		lastNewEntryIndex := args.Entries[len(args.Entries) - 1].Index
+		lastNewEntryIndex := args.Entries[len(args.Entries)-1].Index
 		if args.LeaderCommit > lastNewEntryIndex {
 			end = lastNewEntryIndex
 		} else {
@@ -409,12 +409,12 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	term = rf.currentTerm
 
 	rf.log = append(rf.log, entry{
-		Index: index,
-		Term:  term,
+		Index:   index,
+		Term:    term,
 		Command: command,
 	})
 
-	DPrintf("%d received new entry from client\nCUR: %s", rf.me, rf.getLogString(rf.log))
+	DPrintf("%d received new entry from client\n%d CUR: %s", rf.me, rf.me, rf.getLogString(rf.log))
 
 	return index, term, true
 }
@@ -462,7 +462,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	DPrintf(time.Now().String())
 
 	rf.currentTerm = 0
-	rf.log = append(rf.log, entry{Index: 0, Term: 0, Command:nil})
+	rf.log = append(rf.log, entry{Index: 0, Term: 0, Command: nil})
 	rf.status = follower
 	rf.voteFor = -1
 	rf.resetElectionTimeout()
@@ -648,7 +648,6 @@ func (rf *Raft) commit() {
 	}
 }
 
-
 func (rf *Raft) heartBeat() {
 	for {
 		time.Sleep(125 * time.Millisecond)
@@ -803,7 +802,7 @@ func (rf *Raft) resetElectionTimeout() {
 func (rf *Raft) getLogString(entries []entry) string {
 	logString := ""
 	for _, log := range entries {
-		logString += fmt.Sprintf("[%2d] %2d | ", log.Index, log.Term)
+		logString += fmt.Sprintf("[%d] %d | ", log.Index, log.Term)
 	}
 	logString += "\n"
 	return logString
