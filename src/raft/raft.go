@@ -73,7 +73,7 @@ type Raft struct {
 	// persistent state
 	currentTerm int
 	voteFor     int
-	log         []log
+	log         []entry
 
 	// volatile state
 	commitIndex int
@@ -92,7 +92,7 @@ type Raft struct {
 	majority    int
 }
 
-type log struct {
+type entry struct {
 	Index int
 	Term  int
 	Command interface{}
@@ -262,7 +262,7 @@ type AppendEntriesArgs struct {
 	LeaderID     int
 	PrevLogIndex int
 	PrevLogTerm  int
-	Entries      []log
+	Entries      []entry
 	LeaderCommit int
 }
 
@@ -408,7 +408,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index = len(rf.log)
 	term = rf.currentTerm
 
-	rf.log = append(rf.log, log{
+	rf.log = append(rf.log, entry{
 		Index: index,
 		Term:  term,
 		Command: command,
@@ -462,7 +462,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	DPrintf(time.Now().String())
 
 	rf.currentTerm = 0
-	rf.log = append(rf.log, log{Index: 0, Term: 0, Command:nil})
+	rf.log = append(rf.log, entry{Index: 0, Term: 0, Command:nil})
 	rf.status = follower
 	rf.voteFor = -1
 	rf.resetElectionTimeout()
@@ -564,7 +564,7 @@ func (rf *Raft) syncClock() {
 				return
 			}
 			if !isHeartBeat {
-				arg.Entries = append([]log(nil), rf.log[rf.nextIndex[peer]:]...)
+				arg.Entries = append([]entry(nil), rf.log[rf.nextIndex[peer]:]...)
 			}
 
 			rf.mu.Unlock()
@@ -800,7 +800,7 @@ func (rf *Raft) resetElectionTimeout() {
 	rf.electionTimeout = time.Now().Add(time.Duration(rand.Int63n(randomTimeout)+randomTimeout) * time.Millisecond)
 }
 
-func (rf *Raft) getLogString(entries []log) string {
+func (rf *Raft) getLogString(entries []entry) string {
 	logString := ""
 	for _, log := range entries {
 		logString += fmt.Sprintf("[%2d] %2d | ", log.Index, log.Term)
