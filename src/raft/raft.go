@@ -182,6 +182,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.Term
 		rf.voteFor = -1
 		rf.status = follower
+		DPrintf("%d change my current term from %d to %d", rf.me, rf.currentTerm, args.Term)
 	}
 
 	reply.Term = rf.currentTerm
@@ -189,18 +190,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = false
 		DPrintf("%d vote NO to %d, my term %d is newer than you %d", rf.me, args.CandidateID, rf.currentTerm, args.Term)
 	} else if rf.voteFor == -1 || args.CandidateID == rf.voteFor || args.Term > rf.currentTerm {
+		lastLog := rf.log[len(rf.log)-1]
 		// compare last log
-		if args.LastLogTerm != rf.log[len(rf.log)-1].Term {
-			reply.VoteGranted = rf.log[len(rf.log)-1].Term == args.LastLogTerm
+		if args.LastLogTerm != lastLog.Term { // if different term
+			reply.VoteGranted = lastLog.Term < args.LastLogTerm
 		} else {
-			reply.VoteGranted = len(rf.log) > args.LastLogIndex
-		}
-
-		if args.Term > rf.currentTerm {
-			rf.currentTerm = args.Term
-			rf.voteFor = -1
-			rf.status = follower
-			DPrintf("%d change my current term from %d to %d", rf.me, rf.currentTerm, args.Term)
+			reply.VoteGranted = lastLog.Index <= args.LastLogIndex
 		}
 
 		if reply.VoteGranted {
@@ -215,7 +210,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		} else {
 			voteGranted = "No"
 		}
-		DPrintf("%d vote %s to %d, result from compare last log", rf.me, voteGranted, args.CandidateID)
+		DPrintf("%d vote %s to %d, result from compare last log. my last log [%d] %d, u [%d] %d", rf.me, voteGranted, args.CandidateID, lastLog.Index, lastLog.Term, args.LastLogIndex, args.LastLogTerm)
 	} else {
 		DPrintf("%d I have already Vote for %d", rf.me, rf.voteFor)
 	}
@@ -314,9 +309,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if len(rf.log)-1 < args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		if len(rf.log)-1 < args.PrevLogIndex {
 			DPrintf("%d my largest index %d is smaller than %d you index %d", rf.me, len(rf.log)-1, args.LeaderID, args.PrevLogIndex)
-		}
-		if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		} else if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 			DPrintf("%d my index%d's term %d is not match %d u %d term", rf.me, args.PrevLogIndex, rf.log[args.PrevLogIndex].Term, args.LeaderID, args.PrevLogTerm)
+		} else {
+			DPrintf("%d error!!!!! %d", rf.me, args.LeaderID)
 		}
 		reply.Success = false
 		return
@@ -532,11 +528,6 @@ func (rf *Raft) syncClock() {
 
 		wg.Add(1)
 
-		isHeartBeat := false
-		if rf.log[len(rf.log)-1].Index < rf.nextIndex[i] { // we need send heartbeat
-			isHeartBeat = true
-		}
-
 		lastLog := rf.log[rf.nextIndex[i]-1]
 		argCopy := AppendEntriesArgs{
 			Term:         rf.currentTerm,
@@ -563,6 +554,12 @@ func (rf *Raft) syncClock() {
 				rf.mu.Unlock()
 				return
 			}
+
+			isHeartBeat := false
+			if rf.log[len(rf.log)-1].Index < rf.nextIndex[peer] { // we need send heartbeat
+				isHeartBeat = true
+			}
+
 			if !isHeartBeat {
 				arg.Entries = append([]entry(nil), rf.log[rf.nextIndex[peer]:]...)
 			}
@@ -605,7 +602,6 @@ func (rf *Raft) syncClock() {
 					rf.nextIndex[peer]--
 				}
 			}
-
 		}(i, argCopy)
 	}
 	rf.mu.Unlock()
@@ -615,7 +611,7 @@ func (rf *Raft) syncClock() {
 func (rf *Raft) commit() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	for n := rf.commitIndex + 1; ; n++ {
+	for n := rf.commitIndex + 1; n < len(rf.log); n++ {
 		if rf.killed() {
 			DPrintf("%d now killed", rf.me)
 			return
@@ -632,18 +628,17 @@ func (rf *Raft) commit() {
 			}
 		}
 		if cnt >= rf.majority && rf.log[n].Term == rf.currentTerm {
-			rf.commitIndex = n
-			DPrintf("%d commit index set to %d", rf.me, rf.commitIndex)
-
-			// send to tester
-			msg := ApplyMsg{
-				CommandValid: true,
-				Command:      rf.log[n].Command,
-				CommandIndex: rf.commitIndex,
+			for m := rf.commitIndex + 1; m <= n; m++ {
+				DPrintf("%d commit index set to %d", rf.me, m)
+				// send to tester
+				msg := ApplyMsg{
+					CommandValid: true,
+					Command:      rf.log[m].Command,
+					CommandIndex: m,
+				}
+				rf.applyCh <- msg
 			}
-			rf.applyCh <- msg
-		} else {
-			break
+			rf.commitIndex = n
 		}
 	}
 }
