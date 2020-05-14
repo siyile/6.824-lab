@@ -22,15 +22,12 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"../labgob"
 	"../labrpc"
-
-	"github.com/jinzhu/copier"
 )
 
 // import "bytes"
@@ -603,6 +600,8 @@ func (rf *Raft) syncClock() {
 	DPrintf("%d sync clock started", rf.me)
 	DPrintf("%d idx %s", rf.me, rf.getNextIndexString())
 
+	currentTerm := rf.CurrentTerm
+
 	for i := range rf.peers {
 		if rf.killed() {
 			// DPrintf("%d now killed", rf.me)
@@ -614,26 +613,14 @@ func (rf *Raft) syncClock() {
 
 		wg.Add(1)
 
-		// var lastLog entry
-
-		// if rf.log[len(rf.log)-1].Index >= rf.nextIndex[i] {
-		// 	lastLog = rf.log[rf.nextIndex[i]-1]
-		// } else {
-		// 	lastLog = rf.log[len(rf.log)-1]
-		// }
-
-		// argCopy := AppendEntriesArgs{
-		// 	Term:         rf.currentTerm,
-		// 	LeaderID:     rf.me,
-		// 	PrevLogIndex: lastLog.Index,
-		// 	PrevLogTerm:  lastLog.Term,
-		// 	Entries:      nil,
-		// 	LeaderCommit: rf.commitIndex,
-		// }
-
 		go func(peer int) {
 			defer wg.Done()
 			rf.mu.Lock()
+
+			if rf.CurrentTerm != currentTerm {
+				rf.mu.Unlock()
+				return
+			}
 
 			var lastLog entry
 
@@ -643,8 +630,6 @@ func (rf *Raft) syncClock() {
 				lastLog = rf.Log[len(rf.Log)-1]
 			}
 
-			nextIndex := rf.nextIndex[peer]
-
 			arg := AppendEntriesArgs{
 				Term:         rf.CurrentTerm,
 				LeaderID:     rf.me,
@@ -653,11 +638,6 @@ func (rf *Raft) syncClock() {
 				Entries:      nil,
 				LeaderCommit: rf.commitIndex,
 			}
-
-			// if !reflect.DeepEqual(arg, argCopy) {
-			// 	rf.mu.Unlock()
-			// 	return
-			// }
 
 			isHeartBeat := false
 			if rf.Log[len(rf.Log)-1].Index < rf.nextIndex[peer] { // we need send heartbeat
@@ -681,26 +661,7 @@ func (rf *Raft) syncClock() {
 				return
 			}
 
-			// check condition is the same
-			if rf.Log[len(rf.Log)-1].Index >= rf.nextIndex[peer] {
-				lastLog = rf.Log[rf.nextIndex[peer]-1]
-			} else {
-				lastLog = rf.Log[len(rf.Log)-1]
-			}
-
-			argLater := AppendEntriesArgs{
-				Term:         rf.CurrentTerm,
-				LeaderID:     rf.me,
-				PrevLogIndex: lastLog.Index,
-				PrevLogTerm:  lastLog.Term,
-				Entries:      nil,
-				LeaderCommit: rf.commitIndex,
-			}
-
-			entryBackup := arg.Entries
-			arg.Entries = nil
-
-			if !reflect.DeepEqual(argLater, arg) || rf.nextIndex[peer] != nextIndex || rf.status != leader {
+			if rf.CurrentTerm != arg.Term {
 				// DPrintf("%d condition %d changed! return!", rf.me, peer)
 				return
 			}
@@ -713,21 +674,14 @@ func (rf *Raft) syncClock() {
 				return
 			}
 
-			arg.Entries = entryBackup
-
 			if !isHeartBeat {
 				if reply.Success == true {
-					rf.matchIndex[peer] = arg.Entries[len(arg.Entries)-1].Index
+					rf.matchIndex[peer] = arg.PrevLogIndex + len(arg.Entries)
 					rf.nextIndex[peer] = rf.matchIndex[peer] + 1
 				}
 			}
 
 			if !reply.Success && reply.Reason == logInconsistency {
-				//if rf.nextIndex[peer] > 1 {
-				//	rf.nextIndex[peer]--
-				//	// DPrintf("%d decerase %d to %d", rf.me, peer, rf.nextIndex[peer])
-				//}
-
 				// case 3 follower's log is too short
 				if reply.XTerm == -1 && reply.XIndex == -1 {
 					rf.nextIndex[peer] = reply.XLen
@@ -804,9 +758,8 @@ func (rf *Raft) kickOffElection() {
 	args := RequestVoteArgs{Term: rf.CurrentTerm, CandidateID: rf.me, LastLogIndex: logs.Index, LastLogTerm: logs.Term}
 
 	// assumption for vote
-	var argsCopy RequestVoteArgs
-	copier.Copy(&argsCopy, &args)
 	voteCount := rf.majority
+	currentTerm := rf.CurrentTerm
 
 	// reset election timer
 	rf.resetElectionTimeout()
@@ -824,7 +777,8 @@ func (rf *Raft) kickOffElection() {
 			reply := RequestVoteReply{}
 
 			rf.mu.Lock()
-			if !reflect.DeepEqual(args, argsCopy) {
+			if rf.CurrentTerm != currentTerm {
+				rf.mu.Unlock()
 				return
 			}
 			rf.mu.Unlock()
@@ -833,7 +787,7 @@ func (rf *Raft) kickOffElection() {
 			// reply logic
 			rf.mu.Lock()
 
-			if rf.status == candidate && reflect.DeepEqual(args, argsCopy) {
+			if rf.CurrentTerm == args.Term {
 				// all rpc should do
 				if reply.Term > rf.CurrentTerm {
 					rf.CurrentTerm = reply.Term
