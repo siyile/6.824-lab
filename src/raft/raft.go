@@ -27,8 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"../labrpc"
 	"../labgob"
+	"../labrpc"
 
 	"github.com/jinzhu/copier"
 )
@@ -376,9 +376,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// if an existing entry conflicts with new one, delete all after it
 	// add entry not in the log
 	for i, j := args.PrevLogIndex+1, 0; i <= len(rf.Log) && j <= len(args.Entries); i, j = i+1, j+1 {
-		// no conflict, apply all entries, delete extra entries
+		// no conflict, apply all entries, just break
 		if j == len(args.Entries) {
-			rf.Log = rf.Log[:i]
 			break
 		}
 
@@ -392,6 +391,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if rf.Log[i].Term != args.Entries[j].Term {
 			rf.Log = rf.Log[:i]
 			rf.Log = append(rf.Log, args.Entries[j:]...)
+			break
 		}
 	}
 
@@ -528,8 +528,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.majority = (len(rf.peers) + 1) / 2
 	rf.applyCh = applyCh
 	rf.lastCommitToServer = 0
-
-	rf.persist()
 
 	// go go go daemon process
 	go rf.daemon()
