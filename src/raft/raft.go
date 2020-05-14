@@ -262,6 +262,7 @@ type AppendEntriesArgs struct {
 	LeaderCommit int
 }
 
+// Reason
 const logInconsistency = 1
 
 // AppendEntriesReply is reply for append entry
@@ -269,6 +270,12 @@ type AppendEntriesReply struct {
 	Term    int
 	Success bool
 	Reason  int
+	// XTerm: term in the conflicting entry (if any)
+	XTerm int
+	// XIndex: index of first entry with that term (if any)
+	XIndex int
+	// XLen: log length
+	XLen int
 }
 
 // AppendEntries is append entry RPC handler
@@ -311,15 +318,25 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// reply false if log doesn't contain an entry at prevLogIndex
 	if len(rf.log)-1 < args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.XTerm = -1
+		reply.XIndex = -1
 		if len(rf.log)-1 < args.PrevLogIndex {
 			DPrintf("%d my largest index %d is smaller than %d you index %d", rf.me, len(rf.log)-1, args.LeaderID, args.PrevLogIndex)
 		} else if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 			DPrintf("%d my index%d's term %d is not match %d u %d term", rf.me, args.PrevLogIndex, rf.log[args.PrevLogIndex].Term, args.LeaderID, args.PrevLogTerm)
+			reply.XTerm = rf.log[args.PrevLogIndex].Term
+			for _, entry := range rf.log {
+				if entry.Term == reply.XTerm {
+					reply.XIndex = entry.Index
+					break
+				}
+			}
 		} else {
 			DPrintf("%d error!!!!! %d", rf.me, args.LeaderID)
 		}
 		reply.Reason = logInconsistency
 		reply.Success = false
+		reply.XLen = len(rf.log)
 		return
 	}
 
@@ -657,10 +674,31 @@ func (rf *Raft) syncClock() {
 			}
 
 			if !reply.Success && reply.Reason == logInconsistency {
-				if rf.nextIndex[peer] > 1 {
-					rf.nextIndex[peer]--
-					// DPrintf("%d decerase %d to %d", rf.me, peer, rf.nextIndex[peer])
+				//if rf.nextIndex[peer] > 1 {
+				//	rf.nextIndex[peer]--
+				//	// DPrintf("%d decerase %d to %d", rf.me, peer, rf.nextIndex[peer])
+				//}
+
+				// case 3 follower's log is too short
+				if reply.XTerm == -1 && reply.XIndex == -1 {
+					rf.nextIndex[peer] = reply.XLen
+					return
 				}
+
+				// case 2 leader have Xterm
+				findXterm := false
+				for i, entry := range rf.log {
+					if entry.Term == reply.XTerm {
+						findXterm = true
+					}
+					if findXterm && (i == len(rf.log) - 1 || rf.log[i + 1].Term != reply.XTerm) {
+						rf.nextIndex[peer] = entry.Index
+						return
+					}
+				}
+
+				// case 1 leader doesn't have XTerm
+				rf.nextIndex[peer] = nextIndex
 			}
 		}(i)
 	}
