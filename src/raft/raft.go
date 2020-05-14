@@ -342,11 +342,23 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// if an existing entry conflicts with new one, delete all after it
 	// add entry not in the log
-	for i, j := args.PrevLogIndex+1, 0; i <= len(rf.log) && j < len(args.Entries); i, j = i+1, j+1 {
-		if i == len(rf.log) || rf.log[i].Term != args.Entries[j].Term {
+	for i, j := args.PrevLogIndex+1, 0; i <= len(rf.log) && j <= len(args.Entries); i, j = i+1, j+1 {
+		// no conflict, apply all entries, delete extra entries
+		if j == len(args.Entries) {
 			rf.log = rf.log[:i]
-			rf.log = append(rf.log, args.Entries...)
 			break
+		}
+
+		// no conflict, add entry not in log
+		if i == len(rf.log) {
+			rf.log = append(rf.log, args.Entries[j:]...)
+			break
+		}
+
+		// conflict add entry not already in the log
+		if rf.log[i].Term != args.Entries[j].Term {
+			rf.log = rf.log[:i]
+			rf.log = append(rf.log, args.Entries[j:]...)
 		}
 	}
 
@@ -494,7 +506,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 }
 
 const checkInterval = 125
-const randomTimeout = 400
+const timeout = 400
+const randomTimeout = 100
 const heartBeatInterval = 125
 
 func (rf *Raft) daemon() {
@@ -691,14 +704,14 @@ func (rf *Raft) syncClock() {
 					if entry.Term == reply.XTerm {
 						findXterm = true
 					}
-					if findXterm && (i == len(rf.log) - 1 || rf.log[i + 1].Term != reply.XTerm) {
+					if findXterm && (i == len(rf.log)-1 || rf.log[i+1].Term != reply.XTerm) {
 						rf.nextIndex[peer] = entry.Index
 						return
 					}
 				}
 
 				// case 1 leader doesn't have XTerm
-				rf.nextIndex[peer] = nextIndex
+				rf.nextIndex[peer] = reply.XIndex
 			}
 		}(i)
 	}
@@ -788,6 +801,7 @@ func (rf *Raft) kickOffElection() {
 					rf.currentTerm = reply.Term
 					rf.status = follower
 					rf.resetElectionTimeout()
+					rf.mu.Unlock()
 					return
 				}
 
@@ -835,7 +849,7 @@ func (rf *Raft) checkElection() {
 }
 
 func (rf *Raft) resetElectionTimeout() {
-	rf.electionTimeout = time.Now().Add(time.Duration(rand.Int63n(randomTimeout/2)+randomTimeout) * time.Millisecond)
+	rf.electionTimeout = time.Now().Add(time.Duration(rand.Int63n(randomTimeout)+timeout) * time.Millisecond)
 }
 
 func (rf *Raft) getLogString(entries []entry) string {
