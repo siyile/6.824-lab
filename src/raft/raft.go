@@ -787,7 +787,7 @@ func (rf *Raft) kickOffElection() {
 			// reply logic
 			rf.mu.Lock()
 
-			if rf.CurrentTerm == args.Term {
+			if rf.CurrentTerm == args.Term && rf.status == candidate {
 				// all rpc should do
 				if reply.Term > rf.CurrentTerm {
 					rf.CurrentTerm = reply.Term
@@ -800,29 +800,28 @@ func (rf *Raft) kickOffElection() {
 
 				if reply.VoteGranted {
 					voteCount--
+					if voteCount == 0 {
+						rf.status = leader
+
+						// init nextIndex & matchIndex
+						rf.nextIndex = make([]int, len(rf.peers))
+						for i := range rf.nextIndex {
+							rf.nextIndex[i] = rf.Log[len(rf.Log)-1].Index + 1
+						}
+						rf.matchIndex = make([]int, len(rf.peers))
+						for i := range rf.matchIndex {
+							rf.matchIndex[i] = 0
+						}
+
+						DPrintf("%d now is Leader", rf.me)
+						rf.mu.Unlock()
+					} else {
+						rf.mu.Unlock()
+					}
 				}
 			} else {
 				rf.mu.Unlock()
 				return
-			}
-
-			if voteCount == 0 {
-				rf.status = leader
-
-				// init nextIndex & matchIndex
-				rf.nextIndex = make([]int, len(rf.peers))
-				for i := range rf.nextIndex {
-					rf.nextIndex[i] = rf.Log[len(rf.Log)-1].Index + 1
-				}
-				rf.matchIndex = make([]int, len(rf.peers))
-				for i := range rf.matchIndex {
-					rf.matchIndex[i] = 0
-				}
-
-				DPrintf("%d now is Leader", rf.me)
-				rf.mu.Unlock()
-			} else {
-				rf.mu.Unlock()
 			}
 		}(i)
 	}
