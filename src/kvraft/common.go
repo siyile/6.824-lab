@@ -4,6 +4,15 @@ const (
 	OK             = "OK"
 	ErrNoKey       = "ErrNoKey"
 	ErrWrongLeader = "ErrWrongLeader"
+
+	ErrNotCommitted = "ErrNotCommitted"
+
+	GET = 1
+	PUT = 2
+	APPEND = 3
+
+	CheckInterval = 150
+	CheckLeaderInterval = 500
 )
 
 type Err string
@@ -16,6 +25,7 @@ type PutAppendArgs struct {
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	TaskID int
 }
 
 type PutAppendReply struct {
@@ -25,9 +35,17 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
+	TaskID int
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+type CheckLeaderArgs struct {
+}
+
+type CheckLeaderReply struct {
+	IsLeader bool
 }

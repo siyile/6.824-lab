@@ -3,10 +3,11 @@ package kvraft
 import (
 	"../labgob"
 	"../labrpc"
-	"log"
 	"../raft"
+	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const Debug = 0
@@ -23,6 +24,15 @@ type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	CommandType int
+	Key string
+	Value string
+	TaskID int
+}
+
+type task struct {
+	taskID int
+	value string
 }
 
 type KVServer struct {
@@ -35,16 +45,155 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
+	leader bool
+
+	state         map[string]string
+	taskDone      []task
+	taskIDToIndex map[int]int
+
+	//taskFailed map[int]string
 }
 
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+	index, _, ok := kv.rf.Start(Op{
+		CommandType: GET,
+		Key:         args.Key,
+		TaskID: args.TaskID,
+	})
+
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	kv.taskIDToIndex[args.TaskID] = index
+	if ok {
+		// TODO: START A GO ROUTINE CHECK WHETHER DONE OR NOT
+		value := make(chan string)
+		go kv.checkTask(value, index, args.TaskID)
+		val := <- value
+		if val == ErrNotCommitted {
+			reply.Err = ErrWrongLeader
+		} else {
+			reply.Err = OK
+			reply.Value = val
+			return
+		}
+	} else {
+		// TODO: WE HAVE ERROR HERE! WAIT TO SOLVE!
+		reply.Err = ErrWrongLeader
+		return
+	}
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
+	var commandType int
+	if args.Op == "Put" {
+		commandType = PUT
+	} else if args.Op == "Append" {
+		commandType = APPEND
+	}
+
+	index, _, ok := kv.rf.Start(Op{
+		CommandType: commandType,
+		Key:         args.Key,
+		Value: args.Value,
+		TaskID: args.TaskID,
+	})
+
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	kv.taskIDToIndex[args.TaskID] = index
+	if ok {
+		// TODO: START A GO ROUTINE CHECK WHETHER DONE OR NOT
+		value := make(chan string)
+		go kv.checkTask(value, index, args.TaskID)
+		val := <- value
+		if val == ErrNotCommitted {
+			reply.Err = ErrWrongLeader
+		} else {
+			reply.Err = OK
+			return
+		}
+	} else {
+		// TODO: WE HAVE ERROR HERE! WAIT TO SOLVE!
+		reply.Err = ErrWrongLeader
+		return
+	}
 }
+
+func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int) {
+	for true {
+		kv.mu.Lock()
+		if len(kv.taskDone) >= index {
+			task := kv.taskDone[index]
+			if task.taskID != taskID {
+				valueCh <- ErrNotCommitted
+			} else {
+				valueCh <- task.value
+			}
+			break
+		}
+		kv.mu.Unlock()
+		time.Sleep(time.Millisecond * CheckInterval)
+	}
+	kv.mu.Unlock()
+}
+
+// committed from raft
+func (kv *KVServer) checkCommit() {
+	for {
+		msg := <- kv.applyCh
+		op := msg.Command.(Op)
+		kv.mu.Lock()
+		if op.CommandType == GET {
+			value, ok := kv.state[op.Key]
+			if !ok {
+				value = ""
+			}
+			kv.taskDone = append(kv.taskDone, task{
+				taskID: op.TaskID,
+				value:  value,
+			})
+		} else if op.CommandType == PUT {
+			kv.state[op.Key] = op.Value
+			kv.taskDone = append(kv.taskDone, task{
+				taskID: op.TaskID,
+				value:  op.Value,
+			})
+		} else if op.CommandType == APPEND {
+			value, ok := kv.state[op.Key]
+			if !ok {
+				value = ""
+			}
+			value += op.Value
+			kv.state[op.Key] = op.Value
+			kv.taskDone = append(kv.taskDone, task{
+				taskID: op.TaskID,
+				value:  op.Value,
+			})
+		}
+		kv.mu.Unlock()
+	}
+}
+
+func (kv *KVServer) checkLeader() {
+	for  {
+		kv.mu.Lock()
+		_, kv.leader = kv.rf.GetState()
+		kv.mu.Unlock()
+		time.Sleep(time.Millisecond * CheckInterval)
+	}
+}
+
+func (kv *KVServer) AmILeader() bool {
+	kv.mu.Lock()
+	leader := kv.leader
+	kv.mu.Unlock()
+	return leader
+}
+
 
 //
 // the tester calls Kill() when a KVServer instance won't
