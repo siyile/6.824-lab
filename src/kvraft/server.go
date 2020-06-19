@@ -125,16 +125,22 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 
 func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int, taskTerm int) {
 	for true {
+		if kv.killed() {
+			return
+		}
 		kv.mu.Lock()
 		if kv.rf.CurrentTerm != taskTerm {
+			DPrintf("server %d, term changed, taskID %d return failure", kv.me, taskID)
 			valueCh <- ErrNotCommitted
 			break
 		}
 		if len(kv.taskDone) >= index {
 			task := kv.taskDone[index]
 			if task.taskID != taskID {
+				DPrintf("server %d, task unfinished, taskID %d return failure", kv.me, taskID)
 				valueCh <- ErrNotCommitted
 			} else {
+				DPrintf("server %d, task %s SUCCESS, get value %s", kv.me, taskID, task.value)
 				valueCh <- task.value
 			}
 			break
@@ -150,6 +156,7 @@ func (kv *KVServer) checkCommit() {
 	for {
 		msg := <- kv.applyCh
 		op := msg.Command.(Op)
+		DPrintf("server %d raft committed, task ID %d, committing to my state")
 		kv.mu.Lock()
 		if op.CommandType == GET {
 			value, ok := kv.state[op.Key]
@@ -249,6 +256,8 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// You may need initialization code here.
+	kv.taskIDToIndex = make(map[int]int)
+	kv.state = make(map[string]string)
 
 	return kv
 }

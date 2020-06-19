@@ -120,6 +120,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				continue
 			} else {
 				ck.leader = server
+				DPrintf("change leader to %d", ck.leader)
 				return
 			}
 		}
@@ -188,11 +189,13 @@ func (ck *Clerk) Append(key string, value string) {
 //}
 
 func (ck *Clerk) sendGet(server int, args *GetArgs, reply *GetReply) bool {
+	DPrintf("Clerk send get %s to server %s", args.Key, server)
 	ok := ck.servers[server].Call("KVServer.Get", args, reply)
 	return ok
 }
 
 func (ck *Clerk) sendPutAppend(server int, args *PutAppendArgs, reply *PutAppendReply) bool {
+	DPrintf("Clerk send put/append %s/%s to server %s", args.Key, args.Value, server)
 	ok := ck.servers[server].Call("KVServer.PutAppend", args, reply)
 	return ok
 }
