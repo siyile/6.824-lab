@@ -5,8 +5,6 @@ import (
 	"crypto/rand"
 	"math/big"
 	mathrand "math/rand"
-	"sync"
-	"time"
 )
 
 
@@ -15,9 +13,6 @@ type Clerk struct {
 	// You will have to modify this struct.
 
 	leader int
-	ACK int
-
-	mu      sync.Mutex
 }
 
 func nrand() int64 {
@@ -32,7 +27,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.servers = servers
 	// You'll have to add code here.
 	ck.leader = -1
-	go ck.daemon()
+	//go ck.daemon()
 
 	return ck
 }
@@ -52,29 +47,39 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 	value := ""
 	taskID := mathrand.Int()
-	for true {
-		ck.mu.Lock()
-		if ck.leader != -1 {
-			args := GetArgs{
-				Key:    key,
-				TaskID: taskID,
-			}
-			reply := GetReply{}
-			ck.mu.Unlock()
-			ok := ck.sendGet(ck.leader, &args, &reply)
-			ck.mu.Lock()
+
+	args := GetArgs{
+		Key:    key,
+		TaskID: taskID,
+	}
+	reply := GetReply{}
+
+	if ck.leader != -1 {
+		ok := ck.sendGet(ck.leader, &args, &reply)
+		if !ok || reply.Err != OK {
+			// try another leader forever
+		} else {
+			value = reply.Value
+			return value
+		}
+	}
+
+	for {
+		for server := range ck.servers {
+			ok := ck.sendGet(server, &args, &reply)
 			if !ok || reply.Err != OK {
-				// pass
+				continue
 			} else {
 				value = reply.Value
-				break
+				ck.leader = server
+				return value
 			}
 		}
-		ck.mu.Unlock()
-		time.Sleep(CheckInterval * time.Millisecond)
 	}
+
+
 	// You will have to modify this function.
-	return value
+
 }
 
 //
@@ -88,28 +93,37 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	for true {
-		ck.mu.Lock()
-		if ck.leader != -1 {
-			args := PutAppendArgs{
-				Key:   key,
-				Value: value,
-				Op: op,
-			}
-			reply := PutAppendReply{}
-			ck.mu.Unlock()
-			ok := ck.sendPutAppend(ck.leader, &args, &reply)
-			ck.mu.Lock()
+	taskID := mathrand.Int()
+
+	args := PutAppendArgs{
+		Key:    key,
+		TaskID: taskID,
+		Value: value,
+		Op: op,
+	}
+
+	reply := PutAppendReply{}
+
+	if ck.leader != -1 {
+		ok := ck.sendPutAppend(ck.leader, &args, &reply)
+		if !ok || reply.Err != OK {
+			// try another leader forever
+		} else {
+			return
+		}
+	}
+
+	for {
+		for server := range ck.servers {
+			ok := ck.sendPutAppend(server, &args, &reply)
 			if !ok || reply.Err != OK {
-				// pass
+				continue
 			} else {
-				break
+				ck.leader = server
+				return
 			}
 		}
-		ck.mu.Unlock()
-		time.Sleep(CheckInterval * time.Millisecond)
 	}
-	// You will have to modify this function.
 }
 
 func (ck *Clerk) Put(key string, value string) {
@@ -119,59 +133,59 @@ func (ck *Clerk) Append(key string, value string) {
 	ck.PutAppend(key, value, "Append")
 }
 
-func (ck *Clerk) checkLeader() {
-	var wg sync.WaitGroup
-
-	ck.mu.Lock()
-
-	ck.ACK = mathrand.Int()
-	prevACK := ck.ACK
-	args := CheckLeaderArgs{}
-	leader := -1
-	oneLeader := false
-	for i := range ck.servers {
-		wg.Add(1)
-		go func(server int) {
-			defer wg.Done()
-			reply := CheckLeaderReply{}
-			ck.sendCheckLeader(server, &args, &reply)
-
-			ck.mu.Lock()
-			if ck.ACK != prevACK {
-				return
-			}
-			ck.mu.Unlock()
-			if reply.IsLeader {
-				if leader == -1 {
-					leader = server
-					oneLeader = true
-				} else {
-					oneLeader = false
-				}
-			}
-		}(i)
-	}
-
-	ck.mu.Unlock()
-	wg.Wait()
-	ck.mu.Lock()
-
-	if prevACK != ck.ACK {
-		return
-	}
-	if oneLeader {
-		ck.leader = leader
-	} else {
-		ck.leader = -1
-	}
-
-	ck.mu.Unlock()
-}
-
-func (ck *Clerk) sendCheckLeader(server int, args *CheckLeaderArgs, reply *CheckLeaderReply) bool {
-	ok := ck.servers[server].Call("KVServer.CheckLeader", args, reply)
-	return ok
-}
+//func (ck *Clerk) checkLeader() {
+//	var wg sync.WaitGroup
+//
+//	ck.mu.Lock()
+//
+//	ck.ACK = mathrand.Int()
+//	prevACK := ck.ACK
+//	args := CheckLeaderArgs{}
+//	leader := -1
+//	oneLeader := false
+//	for i := range ck.servers {
+//		wg.Add(1)
+//		go func(server int) {
+//			defer wg.Done()
+//			reply := CheckLeaderReply{}
+//			ck.sendCheckLeader(server, &args, &reply)
+//
+//			ck.mu.Lock()
+//			if ck.ACK != prevACK {
+//				return
+//			}
+//			ck.mu.Unlock()
+//			if reply.IsLeader {
+//				if leader == -1 {
+//					leader = server
+//					oneLeader = true
+//				} else {
+//					oneLeader = false
+//				}
+//			}
+//		}(i)
+//	}
+//
+//	ck.mu.Unlock()
+//	wg.Wait()
+//	ck.mu.Lock()
+//
+//	if prevACK != ck.ACK {
+//		return
+//	}
+//	if oneLeader {
+//		ck.leader = leader
+//	} else {
+//		ck.leader = -1
+//	}
+//
+//	ck.mu.Unlock()
+//}
+//
+//func (ck *Clerk) sendCheckLeader(server int, args *CheckLeaderArgs, reply *CheckLeaderReply) bool {
+//	ok := ck.servers[server].Call("KVServer.CheckLeader", args, reply)
+//	return ok
+//}
 
 func (ck *Clerk) sendGet(server int, args *GetArgs, reply *GetReply) bool {
 	ok := ck.servers[server].Call("KVServer.Get", args, reply)
@@ -183,9 +197,9 @@ func (ck *Clerk) sendPutAppend(server int, args *PutAppendArgs, reply *PutAppend
 	return ok
 }
 
-func (ck *Clerk) daemon() {
-	for true {
-		go ck.checkLeader()
-		time.Sleep(CheckLeaderInterval * time.Millisecond)
-	}
-}
+//func (ck *Clerk) daemon() {
+//	for true {
+//		go ck.checkLeader()
+//		time.Sleep(CheckLeaderInterval * time.Millisecond)
+//	}
+//}

@@ -70,7 +70,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	if ok {
 		// TODO: START A GO ROUTINE CHECK WHETHER DONE OR NOT
 		value := make(chan string)
-		go kv.checkTask(value, index, args.TaskID)
+		go kv.checkTask(value, index, args.TaskID, kv.rf.CurrentTerm)
 		val := <- value
 		if val == ErrNotCommitted {
 			reply.Err = ErrWrongLeader
@@ -108,7 +108,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	if ok {
 		// TODO: START A GO ROUTINE CHECK WHETHER DONE OR NOT
 		value := make(chan string)
-		go kv.checkTask(value, index, args.TaskID)
+		go kv.checkTask(value, index, args.TaskID, kv.rf.CurrentTerm)
 		val := <- value
 		if val == ErrNotCommitted {
 			reply.Err = ErrWrongLeader
@@ -123,9 +123,13 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 }
 
-func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int) {
+func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int, taskTerm int) {
 	for true {
 		kv.mu.Lock()
+		if kv.rf.CurrentTerm != taskTerm {
+			valueCh <- ErrNotCommitted
+			break
+		}
 		if len(kv.taskDone) >= index {
 			task := kv.taskDone[index]
 			if task.taskID != taskID {
@@ -178,21 +182,21 @@ func (kv *KVServer) checkCommit() {
 	}
 }
 
-func (kv *KVServer) checkLeader() {
-	for  {
-		kv.mu.Lock()
-		_, kv.leader = kv.rf.GetState()
-		kv.mu.Unlock()
-		time.Sleep(time.Millisecond * CheckInterval)
-	}
-}
-
-func (kv *KVServer) AmILeader() bool {
-	kv.mu.Lock()
-	leader := kv.leader
-	kv.mu.Unlock()
-	return leader
-}
+//func (kv *KVServer) checkLeader() {
+//	for  {
+//		kv.mu.Lock()
+//		_, kv.leader = kv.rf.GetState()
+//		kv.mu.Unlock()
+//		time.Sleep(time.Millisecond * CheckInterval)
+//	}
+//}
+//
+//func (kv *KVServer) AmILeader() bool {
+//	kv.mu.Lock()
+//	leader := kv.leader
+//	kv.mu.Unlock()
+//	return leader
+//}
 
 
 //
