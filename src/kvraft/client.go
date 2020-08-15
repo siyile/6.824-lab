@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"math/big"
 	mathrand "math/rand"
+	"time"
 
 	"../labrpc"
 )
@@ -53,29 +54,34 @@ func (ck *Clerk) Get(key string) string {
 		TaskId:   taskId,
 		ClientId: ck.clientId,
 	}
-	reply := GetReply{}
 
 	if ck.leader != -1 {
+		reply := GetReply{}
 		ok := ck.sendGet(ck.leader, &args, &reply)
 		if !ok || reply.Err != OK {
 			// try another leader forever
 		} else {
 			value = reply.Value
+			DPrintf("Client success by server %d, for taskId %d", ck.leader, taskId)
 			return value
 		}
 	}
 
 	for {
 		for server := range ck.servers {
+			reply := GetReply{}
 			ok := ck.sendGet(server, &args, &reply)
 			if !ok || reply.Err != OK {
 				continue
 			} else {
 				value = reply.Value
 				ck.leader = server
+				DPrintf("change leader to %d", ck.leader)
+				DPrintf("Client success by server %d, for taskId %d", ck.leader, taskId)
 				return value
 			}
 		}
+		time.Sleep(time.Millisecond * CheckLeaderInterval)
 	}
 
 	// You will have to modify this function.
@@ -103,28 +109,31 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		ClientId: ck.clientId,
 	}
 
-	reply := PutAppendReply{}
-
 	if ck.leader != -1 {
+		reply := PutAppendReply{}
 		ok := ck.sendPutAppend(ck.leader, &args, &reply)
 		if !ok || reply.Err != OK {
 			// try another leader forever
 		} else {
+			DPrintf("Client success by server %d, for taskId %d", ck.leader, taskId)
 			return
 		}
 	}
 
 	for {
 		for server := range ck.servers {
+			reply := PutAppendReply{}
 			ok := ck.sendPutAppend(server, &args, &reply)
 			if !ok || reply.Err != OK {
 				continue
 			} else {
 				ck.leader = server
 				DPrintf("change leader to %d", ck.leader)
+				DPrintf("Client success by server %d, for taskId %d", ck.leader, taskId)
 				return
 			}
 		}
+		time.Sleep(time.Millisecond * CheckLeaderInterval)
 	}
 }
 
@@ -136,13 +145,13 @@ func (ck *Clerk) Append(key string, value string) {
 }
 
 func (ck *Clerk) sendGet(server int, args *GetArgs, reply *GetReply) bool {
-	DPrintf("Clerk send get %s to server %s", args.Key, server)
+	DPrintf("Clerk send get %s to server %d, taskId %d", args.Key, server, args.TaskId)
 	ok := ck.servers[server].Call("KVServer.Get", args, reply)
 	return ok
 }
 
 func (ck *Clerk) sendPutAppend(server int, args *PutAppendArgs, reply *PutAppendReply) bool {
-	DPrintf("Clerk send put/append %s/%s to server %s", args.Key, args.Value, server)
+	DPrintf("Clerk send put/append %s/%s to server %d， taskId %d", args.Key, args.Value, server, args.TaskId)
 	ok := ck.servers[server].Call("KVServer.PutAppend", args, reply)
 	return ok
 }

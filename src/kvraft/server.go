@@ -27,6 +27,7 @@ type Op struct {
 	CommandType int
 	Key         string
 	Value       string
+	TaskId      int
 }
 
 type KVServer struct {
@@ -45,32 +46,23 @@ type KVServer struct {
 
 	// Map[taskId]string
 	results map[int]string
-	// Map[Index]taskId
-	indexMap map[int]int
-	// Map[clientId]taskId
-	clientMap map[int]int
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	kv.mu.Lock()
-	// If Client's last request still in results, delete it.
-	taskId, ok := kv.clientMap[args.ClientId]
-	if ok && taskId != args.TaskId {
-		delete(kv.results, taskId)
-	}
-	kv.clientMap[args.ClientId] = args.TaskId
-
 	// If already have result in map just return it.
 	value, ok := kv.results[args.TaskId]
 	if ok {
 		reply.Err = OK
 		reply.Value = value
+		kv.mu.Unlock()
 		return
 	}
 
 	index, _, ok := kv.rf.Start(Op{
 		CommandType: GET,
 		Key:         args.Key,
+		TaskId:      args.TaskId,
 	})
 
 	// Just return if not leader.
@@ -81,7 +73,6 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	}
 
 	// We start check here
-	kv.indexMap[index] = taskId
 	result := make(chan string)
 	go kv.checkTask(result, index, args.TaskId, kv.rf.CurrentTerm)
 
@@ -100,17 +91,12 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Copied from GET
 	kv.mu.Lock()
-	// If Client's last request still in results, delete it.
-	taskId, ok := kv.clientMap[args.ClientId]
-	if ok && taskId != args.TaskId {
-		delete(kv.results, taskId)
-	}
-	kv.clientMap[args.ClientId] = args.TaskId
 
 	// If already have result in map just return it.
-	_, ok = kv.results[args.TaskId]
+	_, ok := kv.results[args.TaskId]
 	if ok {
 		reply.Err = OK
+		kv.mu.Unlock()
 		return
 	}
 	// Copied from GET
@@ -125,6 +111,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		CommandType: commandType,
 		Key:         args.Key,
 		Value:       args.Value,
+		TaskId:      args.TaskId,
 	})
 
 	// Just return if not leader.
@@ -135,14 +122,12 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 
 	// We start check here
-	kv.indexMap[index] = taskId
 	result := make(chan string)
 	go kv.checkTask(result, index, args.TaskId, kv.rf.CurrentTerm)
+
 	kv.mu.Unlock()
 
-	value := make(chan string)
-	go kv.checkTask(value, index, args.TaskId, kv.rf.CurrentTerm)
-	val := <-value
+	val := <-result
 	if val == ErrorTermChanged {
 		reply.Err = ErrWrongLeader
 	} else {
@@ -166,7 +151,9 @@ func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int, taskTe
 		}
 		value, ok := kv.results[taskID]
 		if ok {
+			DPrintf("server %d, success taskID %d", kv.me, taskID)
 			valueCh <- value
+			break
 		}
 		kv.mu.Unlock()
 		time.Sleep(time.Millisecond * CheckInterval)
@@ -179,18 +166,25 @@ func (kv *KVServer) checkCommit() {
 	for {
 		msg := <-kv.applyCh
 		op := msg.Command.(Op)
-		DPrintf("server %d raft committed, task ID %d, committing to my state")
+		taskId := op.TaskId
 		kv.mu.Lock()
+		_, ok := kv.results[taskId]
+		if ok {
+			DPrintf("server %d found duplicate taskId %d, discarding...", kv.me, taskId)
+			kv.mu.Unlock()
+			continue
+		}
+		DPrintf("server %d raft committed, task ID %d, committing to my state", kv.me, taskId)
 		if op.CommandType == GET {
 			value, ok := kv.state[op.Key]
 			if !ok {
 				value = ""
 			}
-			taskId := kv.indexMap[msg.CommandIndex]
+			// taskId := kv.indexMap[msg.CommandIndex]
 			kv.results[taskId] = value
 		} else if op.CommandType == PUT {
 			kv.state[op.Key] = op.Value
-			taskId := kv.indexMap[msg.CommandIndex]
+			// taskId := kv.indexMap[msg.CommandIndex]
 			kv.results[taskId] = op.Value
 		} else if op.CommandType == APPEND {
 			value, ok := kv.state[op.Key]
@@ -199,7 +193,7 @@ func (kv *KVServer) checkCommit() {
 			}
 			value += op.Value
 			kv.state[op.Key] = value
-			taskId := kv.indexMap[msg.CommandIndex]
+			// taskId := kv.indexMap[msg.CommandIndex]
 			kv.results[taskId] = op.Value
 		}
 		kv.mu.Unlock()
@@ -227,7 +221,7 @@ func (kv *KVServer) killed() bool {
 	return z == 1
 }
 
-//
+//s
 // servers[] contains the ports of the set of
 // servers that will cooperate via Raft to
 // form the fault-tolerant key/value service.
@@ -257,9 +251,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	// You may need initialization code here.
 	kv.results = make(map[int]string)
-	kv.indexMap = make(map[int]int)
-	kv.clientMap = make(map[int]int)
 	kv.state = make(map[string]string)
+
+	go kv.checkCommit()
 
 	return kv
 }

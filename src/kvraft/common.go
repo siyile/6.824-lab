@@ -44,10 +44,3 @@ type GetReply struct {
 	Err   Err
 	Value string
 }
-
-type CheckLeaderArgs struct {
-}
-
-type CheckLeaderReply struct {
-	IsLeader bool
-}
