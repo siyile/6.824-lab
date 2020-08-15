@@ -1,17 +1,18 @@
 package kvraft
 
 import (
-	"../labrpc"
 	"crypto/rand"
 	"math/big"
 	mathrand "math/rand"
+
+	"../labrpc"
 )
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
-
-	leader int
+	leader   int
+	clientId int
 }
 
 func nrand() int64 {
@@ -26,6 +27,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.servers = servers
 	// You'll have to add code here.
 	ck.leader = -1
+	ck.clientId = mathrand.Int()
 
 	return ck
 }
@@ -47,8 +49,9 @@ func (ck *Clerk) Get(key string) string {
 	taskId := mathrand.Int()
 
 	args := GetArgs{
-		Key:    key,
-		TaskId: taskId,
+		Key:      key,
+		TaskId:   taskId,
+		ClientId: ck.clientId,
 	}
 	reply := GetReply{}
 
@@ -93,10 +96,11 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	taskId := mathrand.Int()
 
 	args := PutAppendArgs{
-		Key:    key,
-		TaskId: taskId,
-		Value:  value,
-		Op:     op,
+		Key:      key,
+		TaskId:   taskId,
+		Value:    value,
+		Op:       op,
+		ClientId: ck.clientId,
 	}
 
 	reply := PutAppendReply{}
@@ -142,10 +146,3 @@ func (ck *Clerk) sendPutAppend(server int, args *PutAppendArgs, reply *PutAppend
 	ok := ck.servers[server].Call("KVServer.PutAppend", args, reply)
 	return ok
 }
-
-//func (ck *Clerk) daemon() {
-//	for true {
-//		go ck.checkLeader()
-//		time.Sleep(CheckLeaderInterval * time.Millisecond)
-//	}
-//}

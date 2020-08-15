@@ -1,13 +1,14 @@
 package kvraft
 
 import (
-	"../labgob"
-	"../labrpc"
-	"../raft"
 	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"../labgob"
+	"../labrpc"
+	"../raft"
 )
 
 const Debug = 0
@@ -255,7 +256,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// You may need initialization code here.
-	kv.taskIDToIndex = make(map[int]int)
+	kv.results = make(map[int]string)
+	kv.indexMap = make(map[int]int)
+	kv.clientMap = make(map[int]int)
 	kv.state = make(map[string]string)
 
 	return kv
