@@ -19,20 +19,13 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
-
 type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
 	CommandType int
-	Key string
-	Value string
-	TaskID int
-}
-
-type task struct {
-	taskID int
-	value string
+	Key         string
+	Value       string
 }
 
 type KVServer struct {
@@ -47,82 +40,118 @@ type KVServer struct {
 	// Your definitions here.
 	leader bool
 
-	state         map[string]string
-	taskDone      []task
-	taskIDToIndex map[int]int
+	state map[string]string
 
-	//taskFailed map[int]string
+	// Map[taskId]string
+	results map[int]string
+	// Map[Index]taskId
+	indexMap map[int]int
+	// Map[clientId]taskId
+	clientMap map[int]int
 }
 
-
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
+	kv.mu.Lock()
+	// If Client's last request still in results, delete it.
+	taskId, ok := kv.clientMap[args.ClientId]
+	if ok && taskId != args.TaskId {
+		delete(kv.results, taskId)
+	}
+	kv.clientMap[args.ClientId] = args.TaskId
+
+	// If already have result in map just return it.
+	value, ok := kv.results[args.TaskId]
+	if ok {
+		reply.Err = OK
+		reply.Value = value
+		return
+	}
+
 	index, _, ok := kv.rf.Start(Op{
 		CommandType: GET,
 		Key:         args.Key,
-		TaskID: args.TaskID,
 	})
 
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-
-	kv.taskIDToIndex[args.TaskID] = index
-	if ok {
-		// TODO: START A GO ROUTINE CHECK WHETHER DONE OR NOT
-		value := make(chan string)
-		go kv.checkTask(value, index, args.TaskID, kv.rf.CurrentTerm)
-		val := <- value
-		if val == ErrNotCommitted {
-			reply.Err = ErrWrongLeader
-		} else {
-			reply.Err = OK
-			reply.Value = val
-			return
-		}
-	} else {
-		// TODO: WE HAVE ERROR HERE! WAIT TO SOLVE!
+	// Just return if not leader.
+	if !ok {
 		reply.Err = ErrWrongLeader
+		kv.mu.Unlock()
+		return
+	}
+
+	// We start check here
+	kv.indexMap[index] = taskId
+	result := make(chan string)
+	go kv.checkTask(result, index, args.TaskId, kv.rf.CurrentTerm)
+
+	kv.mu.Unlock()
+
+	val := <-result
+	if val == ErrorTermChanged {
+		reply.Err = ErrWrongLeader
+	} else {
+		reply.Err = OK
+		reply.Value = val
 		return
 	}
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
+	// Copied from GET
+	kv.mu.Lock()
+	// If Client's last request still in results, delete it.
+	taskId, ok := kv.clientMap[args.ClientId]
+	if ok && taskId != args.TaskId {
+		delete(kv.results, taskId)
+	}
+	kv.clientMap[args.ClientId] = args.TaskId
+
+	// If already have result in map just return it.
+	_, ok = kv.results[args.TaskId]
+	if ok {
+		reply.Err = OK
+		return
+	}
+	// Copied from GET
 	var commandType int
-	if args.Op == "Put" {
-		commandType = PUT
-	} else if args.Op == "Append" {
+	if args.Op == "Append" {
 		commandType = APPEND
+	} else {
+		commandType = PUT
 	}
 
 	index, _, ok := kv.rf.Start(Op{
 		CommandType: commandType,
 		Key:         args.Key,
-		Value: args.Value,
-		TaskID: args.TaskID,
+		Value:       args.Value,
 	})
 
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-
-	kv.taskIDToIndex[args.TaskID] = index
-	if ok {
-		// TODO: START A GO ROUTINE CHECK WHETHER DONE OR NOT
-		value := make(chan string)
-		go kv.checkTask(value, index, args.TaskID, kv.rf.CurrentTerm)
-		val := <- value
-		if val == ErrNotCommitted {
-			reply.Err = ErrWrongLeader
-		} else {
-			reply.Err = OK
-			return
-		}
-	} else {
-		// TODO: WE HAVE ERROR HERE! WAIT TO SOLVE!
+	// Just return if not leader.
+	if !ok {
 		reply.Err = ErrWrongLeader
+		kv.mu.Unlock()
 		return
 	}
+
+	// We start check here
+	kv.indexMap[index] = taskId
+	result := make(chan string)
+	go kv.checkTask(result, index, args.TaskId, kv.rf.CurrentTerm)
+	kv.mu.Unlock()
+
+	value := make(chan string)
+	go kv.checkTask(value, index, args.TaskId, kv.rf.CurrentTerm)
+	val := <-value
+	if val == ErrorTermChanged {
+		reply.Err = ErrWrongLeader
+	} else {
+		reply.Err = OK
+		return
+	}
+
 }
 
+// Run infinitely until find taskId in result. Unless, term changed.
 func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int, taskTerm int) {
 	for true {
 		if kv.killed() {
@@ -131,19 +160,12 @@ func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int, taskTe
 		kv.mu.Lock()
 		if kv.rf.CurrentTerm != taskTerm {
 			DPrintf("server %d, term changed, taskID %d return failure", kv.me, taskID)
-			valueCh <- ErrNotCommitted
+			valueCh <- ErrorTermChanged
 			break
 		}
-		if len(kv.taskDone) >= index {
-			task := kv.taskDone[index]
-			if task.taskID != taskID {
-				DPrintf("server %d, task unfinished, taskID %d return failure", kv.me, taskID)
-				valueCh <- ErrNotCommitted
-			} else {
-				DPrintf("server %d, task %s SUCCESS, get value %s", kv.me, taskID, task.value)
-				valueCh <- task.value
-			}
-			break
+		value, ok := kv.results[taskID]
+		if ok {
+			valueCh <- value
 		}
 		kv.mu.Unlock()
 		time.Sleep(time.Millisecond * CheckInterval)
@@ -151,10 +173,10 @@ func (kv *KVServer) checkTask(valueCh chan string, index int, taskID int, taskTe
 	kv.mu.Unlock()
 }
 
-// committed from raft
+// Committed from raft, any committed msg is always true.
 func (kv *KVServer) checkCommit() {
 	for {
-		msg := <- kv.applyCh
+		msg := <-kv.applyCh
 		op := msg.Command.(Op)
 		DPrintf("server %d raft committed, task ID %d, committing to my state")
 		kv.mu.Lock()
@@ -163,48 +185,25 @@ func (kv *KVServer) checkCommit() {
 			if !ok {
 				value = ""
 			}
-			kv.taskDone = append(kv.taskDone, task{
-				taskID: op.TaskID,
-				value:  value,
-			})
+			taskId := kv.indexMap[msg.CommandIndex]
+			kv.results[taskId] = value
 		} else if op.CommandType == PUT {
 			kv.state[op.Key] = op.Value
-			kv.taskDone = append(kv.taskDone, task{
-				taskID: op.TaskID,
-				value:  op.Value,
-			})
+			taskId := kv.indexMap[msg.CommandIndex]
+			kv.results[taskId] = op.Value
 		} else if op.CommandType == APPEND {
 			value, ok := kv.state[op.Key]
 			if !ok {
 				value = ""
 			}
 			value += op.Value
-			kv.state[op.Key] = op.Value
-			kv.taskDone = append(kv.taskDone, task{
-				taskID: op.TaskID,
-				value:  op.Value,
-			})
+			kv.state[op.Key] = value
+			taskId := kv.indexMap[msg.CommandIndex]
+			kv.results[taskId] = op.Value
 		}
 		kv.mu.Unlock()
 	}
 }
-
-//func (kv *KVServer) checkLeader() {
-//	for  {
-//		kv.mu.Lock()
-//		_, kv.leader = kv.rf.GetState()
-//		kv.mu.Unlock()
-//		time.Sleep(time.Millisecond * CheckInterval)
-//	}
-//}
-//
-//func (kv *KVServer) AmILeader() bool {
-//	kv.mu.Lock()
-//	leader := kv.leader
-//	kv.mu.Unlock()
-//	return leader
-//}
-
 
 //
 // the tester calls Kill() when a KVServer instance won't

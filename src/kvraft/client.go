@@ -7,7 +7,6 @@ import (
 	mathrand "math/rand"
 )
 
-
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
@@ -27,7 +26,6 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.servers = servers
 	// You'll have to add code here.
 	ck.leader = -1
-	//go ck.daemon()
 
 	return ck
 }
@@ -46,11 +44,11 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 //
 func (ck *Clerk) Get(key string) string {
 	value := ""
-	taskID := mathrand.Int()
+	taskId := mathrand.Int()
 
 	args := GetArgs{
 		Key:    key,
-		TaskID: taskID,
+		TaskId: taskId,
 	}
 	reply := GetReply{}
 
@@ -77,7 +75,6 @@ func (ck *Clerk) Get(key string) string {
 		}
 	}
 
-
 	// You will have to modify this function.
 
 }
@@ -93,13 +90,13 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	taskID := mathrand.Int()
+	taskId := mathrand.Int()
 
 	args := PutAppendArgs{
 		Key:    key,
-		TaskID: taskID,
-		Value: value,
-		Op: op,
+		TaskId: taskId,
+		Value:  value,
+		Op:     op,
 	}
 
 	reply := PutAppendReply{}
@@ -133,60 +130,6 @@ func (ck *Clerk) Put(key string, value string) {
 func (ck *Clerk) Append(key string, value string) {
 	ck.PutAppend(key, value, "Append")
 }
-
-//func (ck *Clerk) checkLeader() {
-//	var wg sync.WaitGroup
-//
-//	ck.mu.Lock()
-//
-//	ck.ACK = mathrand.Int()
-//	prevACK := ck.ACK
-//	args := CheckLeaderArgs{}
-//	leader := -1
-//	oneLeader := false
-//	for i := range ck.servers {
-//		wg.Add(1)
-//		go func(server int) {
-//			defer wg.Done()
-//			reply := CheckLeaderReply{}
-//			ck.sendCheckLeader(server, &args, &reply)
-//
-//			ck.mu.Lock()
-//			if ck.ACK != prevACK {
-//				return
-//			}
-//			ck.mu.Unlock()
-//			if reply.IsLeader {
-//				if leader == -1 {
-//					leader = server
-//					oneLeader = true
-//				} else {
-//					oneLeader = false
-//				}
-//			}
-//		}(i)
-//	}
-//
-//	ck.mu.Unlock()
-//	wg.Wait()
-//	ck.mu.Lock()
-//
-//	if prevACK != ck.ACK {
-//		return
-//	}
-//	if oneLeader {
-//		ck.leader = leader
-//	} else {
-//		ck.leader = -1
-//	}
-//
-//	ck.mu.Unlock()
-//}
-//
-//func (ck *Clerk) sendCheckLeader(server int, args *CheckLeaderArgs, reply *CheckLeaderReply) bool {
-//	ok := ck.servers[server].Call("KVServer.CheckLeader", args, reply)
-//	return ok
-//}
 
 func (ck *Clerk) sendGet(server int, args *GetArgs, reply *GetReply) bool {
 	DPrintf("Clerk send get %s to server %s", args.Key, server)
