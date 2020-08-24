@@ -1,4 +1,4 @@
-# raft-log-replication
+# Raft Log Replication
 
-A raft consensus based log replication system.
+A raft consensus based distributed log replication system.
 Part of 6.824 Distributed System course.
